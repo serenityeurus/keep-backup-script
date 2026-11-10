@@ -26,6 +26,7 @@ ENABLE_GKEEPAPI=1
 ENABLE_TAKEOUT=1
 BACKUP_ROOT="$HOME/backups/keep-backup"
 KEYCHAIN_SERVICE="keep-backup-master-token"
+KEYCHAIN_PATH="$HOME/Library/Keychains/login.keychain-db"   # explicit: cron has no default keychain search list
 PYTHON="$SCRIPT_DIR/.venv/bin/python"
 TAKEOUT_DRIVE_ACCOUNT=""       # gog account whose Drive receives Takeout; defaults to KEEP_EMAIL
 TAKEOUT_MAX_AGE_DAYS=70        # alert if the newest Takeout export is older than this
@@ -136,9 +137,13 @@ run_gkeepapi() {
 
   local out="$WORK/gkeepapi.json"
   # Token flows Keychain -> stdin; it never appears in argv, env, or on disk.
-  if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEEP_EMAIL" -w 2>/dev/null \
+  if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEEP_EMAIL" -w "$KEYCHAIN_PATH" >/dev/null 2>"$WORK/security.err"; then
+    log "gkeepapi: cannot read Keychain item '$KEYCHAIN_SERVICE' from $KEYCHAIN_PATH: $(tr '\n' ' ' < "$WORK/security.err")"
+    return 1
+  fi
+  if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEEP_EMAIL" -w "$KEYCHAIN_PATH" 2>/dev/null \
       | "$PYTHON" "$SCRIPT_DIR/gkeep_dump.py" "$KEEP_EMAIL" > "$out"; then
-    log "gkeepapi: fetch failed (missing Keychain item '$KEYCHAIN_SERVICE', expired token, or API change)"
+    log "gkeepapi: fetch failed (expired/revoked master token or gkeepapi API change)"
     return 1
   fi
   jq -e 'type == "array"' "$out" >/dev/null || { log "gkeepapi: unexpected output"; return 1; }
