@@ -11,20 +11,20 @@
 # Notes with several labels are written into each label folder; notes without
 # labels go to _Unlabeled/. Trashed notes are skipped.
 #
-# Usage: backup_keep.sh [--config FILE] [--gkeepapi|--no-gkeepapi] [--takeout|--no-takeout]
-# Flags override ENABLE_GKEEPAPI / ENABLE_TAKEOUT from the config file.
+# Usage: backup_keep.sh [--env FILE] [--gkeepapi|--no-gkeepapi] [--takeout|--no-takeout]
+# Flags override ENABLE_GKEEPAPI / ENABLE_TAKEOUT from keep-backup.env.
 # Exit status is non-zero if any enabled source fails or the Takeout export is stale.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="${KEEP_BACKUP_CONFIG:-$SCRIPT_DIR/keep-backup.conf}"
+ENV_FILE="${KEEP_BACKUP_ENV:-$SCRIPT_DIR/keep-backup.env}"
 
-# Defaults (overridable in the config file)
+# Defaults (overridable in keep-backup.env)
 KEEP_EMAIL=""
 ENABLE_GKEEPAPI=1
 ENABLE_TAKEOUT=1
-BACKUP_ROOT="$HOME/keep-backup"
+BACKUP_ROOT="$HOME/backups/keep-backup"
 KEYCHAIN_SERVICE="keep-backup-master-token"
 PYTHON="$SCRIPT_DIR/.venv/bin/python"
 TAKEOUT_DRIVE_ACCOUNT=""       # gog account whose Drive receives Takeout; defaults to KEEP_EMAIL
@@ -34,7 +34,7 @@ OVERRIDE_GKEEPAPI=""
 OVERRIDE_TAKEOUT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --config) CONFIG="$2"; shift 2 ;;
+    --env) ENV_FILE="$2"; shift 2 ;;
     --gkeepapi) OVERRIDE_GKEEPAPI=1; shift ;;
     --no-gkeepapi) OVERRIDE_GKEEPAPI=0; shift ;;
     --takeout) OVERRIDE_TAKEOUT=1; shift ;;
@@ -44,9 +44,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -f "$CONFIG" ]]; then
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
   # shellcheck source=/dev/null
-  source "$CONFIG"
+  source "$ENV_FILE"
+  set +a
+elif [[ -n "${KEEP_BACKUP_ENV:-}" || "$ENV_FILE" != "$SCRIPT_DIR/keep-backup.env" ]]; then
+  echo "Error: env file not found: $ENV_FILE" >&2
+  exit 2
 fi
 [[ -n "$OVERRIDE_GKEEPAPI" ]] && ENABLE_GKEEPAPI="$OVERRIDE_GKEEPAPI"
 [[ -n "$OVERRIDE_TAKEOUT" ]] && ENABLE_TAKEOUT="$OVERRIDE_TAKEOUT"
