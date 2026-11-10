@@ -1,6 +1,6 @@
 # Google Keep Backup Script
 
-Backs up a **personal** Google Keep account into text files organized by Keep label. It pulls from two independent sources, and each one can be turned on or off:
+Backs up a **personal** Google Keep account into Markdown files organized by Keep label. It pulls from two independent sources, and each one can be turned on or off:
 
 | Source | How | Freshness | Labels | Risk |
 |---|---|---|---|---|
@@ -11,26 +11,37 @@ Each source writes its own tree, so a failure in one never touches the other:
 
 ```
 ~/backups/keep-backup/
-  gkeepapi/<Label>/<Title>__<createdUsec>.txt
-  takeout/<Label>/<Title>__<createdUsec>.txt
+  gkeepapi/<Label>/<Title>__<createdUsec>.md
+  takeout/<Label>/<Title>__<createdUsec>.md
   .state/last_run.json      # {"finishedAt", "gkeepapi": ok|failed|disabled, "takeout": ...}
   .state/takeout_last       # newest Takeout export already processed
 ```
 
 A note with several labels is written into each label folder. Notes with no labels go to `_Unlabeled/`, and trashed notes are skipped. Each tree is built in a staging directory and swapped into place only after every file is written. If a run fails, the previous backup stays as it was.
 
-Note file format:
+Note file format (Markdown with YAML front matter; checklists become task lists):
 
-```
-Title: Groceries
-Labels: Home, Shopping
-Created: 2023-11-14T22:13:20Z
-Edited: 2023-11-14T22:21:40Z
-Pinned: true  Archived: false  Color: DEFAULT
+```markdown
+---
+title: "Groceries"
+labels: ["Home","Shopping"]
+created: 2023-11-14T22:13:20Z
+edited: 2023-11-14T22:21:40Z
+pinned: true
+archived: false
+color: DEFAULT
+source: gkeepapi
+---
 
-[x] Milk
-[ ] Eggs
+# Groceries
+
+- [x] Milk
+  - [ ] 2%
 ```
+
+Text notes keep their body as-is, so Markdown you wrote in Keep renders as Markdown.
+
+To re-render a notes JSON file (Takeout schema) into a tree without contacting Google, run `./backup-keep.sh --render notes.json <dest-dir>`.
 
 ## Setup
 
@@ -53,10 +64,10 @@ Pinned: true  Archived: false  Color: DEFAULT
 ## Usage
 
 ```bash
-./backup_keep.sh                       # sources enabled in keep-backup.env
-./backup_keep.sh --no-takeout          # gkeepapi only
-./backup_keep.sh --no-gkeepapi         # takeout only
-./backup_keep.sh --env /path/to/keep-backup.env
+./backup-keep.sh                       # sources enabled in keep-backup.env
+./backup-keep.sh --no-takeout          # gkeepapi only
+./backup-keep.sh --no-gkeepapi         # takeout only
+./backup-keep.sh --env /path/to/keep-backup.env
 ```
 
 The exit status is non-zero if any enabled source fails or the Takeout export is stale.
@@ -64,7 +75,7 @@ The exit status is non-zero if any enabled source fails or the Takeout export is
 ## Schedule (cron, daily 2 AM)
 
 ```
-0 2 * * * /Users/serenity/repos/keep-backup-script/backup_keep.sh >> /Users/serenity/backups/keep-backup/backup.log 2>&1
+0 2 * * * /Users/serenity/repos/keep-backup-script/backup-keep.sh >> /Users/serenity/backups/keep-backup/backup.log 2>&1
 ```
 
 Only new Takeout exports are downloaded. On other days the Takeout source only runs the staleness check.

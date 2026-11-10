@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# backup_keep.sh - Back up a personal Google Keep account into text files
+# backup-keep.sh - Back up a personal Google Keep account into Markdown files
 # organized by Keep label, from two independent sources:
 #
 #   gkeepapi  daily, via the unofficial gkeepapi library (master token in Keychain)
 #   takeout   newest scheduled Google Takeout export found in Google Drive (via gog)
 #
 # Each source writes its own tree, so a failure in one never touches the other:
-#   <BACKUP_ROOT>/gkeepapi/<Label>/<Title>__<createdUsec>.txt
-#   <BACKUP_ROOT>/takeout/<Label>/<Title>__<createdUsec>.txt
+#   <BACKUP_ROOT>/gkeepapi/<Label>/<Title>__<createdUsec>.md
+#   <BACKUP_ROOT>/takeout/<Label>/<Title>__<createdUsec>.md
 # Notes with several labels are written into each label folder; notes without
 # labels go to _Unlabeled/. Trashed notes are skipped.
 #
-# Usage: backup_keep.sh [--env FILE] [--gkeepapi|--no-gkeepapi] [--takeout|--no-takeout]
+# Usage: backup-keep.sh [--env FILE] [--gkeepapi|--no-gkeepapi] [--takeout|--no-takeout]
 # Flags override ENABLE_GKEEPAPI / ENABLE_TAKEOUT from keep-backup.env.
 # Exit status is non-zero if any enabled source fails or the Takeout export is stale.
 
@@ -33,6 +33,8 @@ TAKEOUT_MAX_AGE_DAYS=70        # alert if the newest Takeout export is older tha
 
 OVERRIDE_GKEEPAPI=""
 OVERRIDE_TAKEOUT=""
+RENDER_JSON=""
+RENDER_DEST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) ENV_FILE="$2"; shift 2 ;;
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --no-gkeepapi) OVERRIDE_GKEEPAPI=0; shift ;;
     --takeout) OVERRIDE_TAKEOUT=1; shift ;;
     --no-takeout) OVERRIDE_TAKEOUT=0; shift ;;
+    --render) RENDER_JSON="$2"; RENDER_DEST="$3"; shift 3 ;;   # maintenance: render a notes JSON file into a tree
     -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -60,7 +63,7 @@ TAKEOUT_DRIVE_ACCOUNT="${TAKEOUT_DRIVE_ACCOUNT:-$KEEP_EMAIL}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >&2; }
 
-if [[ "$ENABLE_GKEEPAPI" != 1 && "$ENABLE_TAKEOUT" != 1 ]]; then
+if [[ -z "$RENDER_JSON" && "$ENABLE_GKEEPAPI" != 1 && "$ENABLE_TAKEOUT" != 1 ]]; then
   log "Both sources are disabled; nothing to do."
   exit 0
 fi
@@ -87,27 +90,33 @@ render_tree() {
   while IFS=$'\t' read -r dir file b64; do
     mkdir -p "$staging/$dir"
     local path="$staging/$dir/$file" n=1
-    while [[ -e "$path" ]]; do path="$staging/$dir/${file%.txt}_$n.txt"; n=$((n + 1)); done
+    while [[ -e "$path" ]]; do path="$staging/$dir/${file%.md}_$n.md"; n=$((n + 1)); done
     printf '%s' "$b64" | base64 --decode > "$path"
     written=$((written + 1))
-  done < <(jq -r '
+  done < <(jq -r --arg source "$(basename "$dest")" '
     def safe: gsub("[^A-Za-z0-9 _.-]"; "_") | gsub("_+"; "_") | gsub("^[ _.]+|[ _.]+$"; "") | .[0:80];
     def ts: if (. // 0) > 0 then (. / 1000000 | floor | todate) else "" end;
     .[] | select(.isTrashed != true)
     | (.title // "") as $title
     | ((.createdTimestampUsec // 0) | tostring) as $key
-    | (($title | safe) as $t | (if $t == "" then $key else "\($t)__\($key)" end) + ".txt") as $file
+    | (($title | safe) as $t | (if $t == "" then $key else "\($t)__\($key)" end) + ".md") as $file
     | ([.labels[]?.name] | unique) as $labels
     | (if ($labels | length) == 0 then ["_Unlabeled"]
        else [$labels[] | safe | if . == "" then "_Unnamed" else . end] end) as $dirs
-    | ([ "Title: \($title)",
-         "Labels: \($labels | join(", "))",
-         "Created: \(.createdTimestampUsec | ts)",
-         "Edited: \(.userEditedTimestampUsec | ts)",
-         "Pinned: \(.isPinned // false)  Archived: \(.isArchived // false)  Color: \(.color // "DEFAULT")",
+    | ([ "---",
+         "title: \($title | tojson)",
+         "labels: \($labels | tojson)",
+         "created: \(.createdTimestampUsec | ts)",
+         "edited: \(.userEditedTimestampUsec | ts)",
+         "pinned: \(.isPinned // false)",
+         "archived: \(.isArchived // false)",
+         "color: \(.color // "DEFAULT")",
+         "source: \($source)",
+         "---",
          "" ]
+       + (if $title == "" then [] else ["# \($title)", ""] end)
        + (if ((.listContent // []) | length) > 0
-          then [.listContent[] | (if .isIndented then "  " else "" end) + (if .isChecked then "[x] " else "[ ] " end) + (.text // "")]
+          then [.listContent[] | (if .isIndented then "  " else "" end) + (if .isChecked then "- [x] " else "- [ ] " end) + (.text // "")]
           else [.textContent // ""] end)
        | join("\n") + "\n") as $body
     | $dirs[] | "\(.)\t\($file)\t\($body | @base64)"
@@ -127,6 +136,12 @@ render_tree() {
   fi
   log "Wrote $written files to $dest"
 }
+
+if [[ -n "$RENDER_JSON" ]]; then
+  mkdir -p "$(dirname "$RENDER_DEST")"
+  render_tree "$RENDER_JSON" "$RENDER_DEST"
+  exit $?
+fi
 
 # ---------------------------------------------------------------------------
 # Source 1: gkeepapi
