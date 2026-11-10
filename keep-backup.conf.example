@@ -1,0 +1,19 @@
+# Copy to keep-backup.conf (gitignored) and edit.
+
+# Personal Google account that owns the Keep notes
+KEEP_EMAIL="you@gmail.com"
+
+# Enable (1) or disable (0) each source; CLI flags --[no-]gkeepapi / --[no-]takeout override these
+ENABLE_GKEEPAPI=1
+ENABLE_TAKEOUT=1
+
+BACKUP_ROOT="$HOME/keep-backup"
+
+# Keychain item holding the gkeepapi master token (service name; account = KEEP_EMAIL)
+KEYCHAIN_SERVICE="keep-backup-master-token"
+
+# gog account whose Drive receives the scheduled Takeout export (defaults to KEEP_EMAIL)
+# TAKEOUT_DRIVE_ACCOUNT="you@gmail.com"
+
+# Fail the run if the newest Takeout export is older than this many days
+TAKEOUT_MAX_AGE_DAYS=70

@@ -1,0 +1,3 @@
+.venv/
+keep-backup.conf
+__pycache__/
